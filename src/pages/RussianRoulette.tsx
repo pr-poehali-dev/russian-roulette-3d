@@ -3,12 +3,14 @@ import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { useNavigate } from 'react-router-dom';
 import { Card } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { XCircle, Skull, Target, Menu } from "lucide-react";
+import { Revolver } from "@/components/ui/revolver";
 
 const RussianRoulette = () => {
-  const [gameState, setGameState] = useState<'intro' | 'targeting' | 'opponentTurn' | 'won' | 'oppDead'>('intro');
+  const [gameState, setGameState] = useState<'intro' | 'targeting' | 'opponentTurn' | 'won' | 'oppDead' | 'reloading'>('intro');
   const [bulletPosition, setBulletPosition] = useState<number>(0);
+  const [fakeBulletPosition, setFakeBulletPosition] = useState<number>(0);
   const [currentPosition, setCurrentPosition] = useState<number>(0);
   const [opponentName] = useState<string>("Ivan");
   const [gameCount, setGameCount] = useState<number>(0);
@@ -16,6 +18,24 @@ const RussianRoulette = () => {
   const [code, setCode] = useState<string>("");
   const [bloodEffect, setBloodEffect] = useState<boolean>(false);
   const [language, setLanguage] = useState<'en' | 'ru'>('en');
+  const [shotSound] = useState<HTMLAudioElement | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new Audio('/shot.mp3');
+    }
+    return null;
+  });
+  const [emptySound] = useState<HTMLAudioElement | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new Audio('/empty-shot.mp3');
+    }
+    return null;
+  });
+  const [reloadSound] = useState<HTMLAudioElement | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new Audio('/reload.mp3');
+    }
+    return null;
+  });
   
   const navigate = useNavigate();
   const roomRef = useRef<HTMLDivElement>(null);
@@ -31,9 +51,17 @@ const RussianRoulette = () => {
 
   // Initialize game
   const startGame = () => {
-    // Place bullet in random position (1-6)
+    // Place real bullet in random position (1-6)
     const randomPosition = Math.floor(Math.random() * 6) + 1;
     setBulletPosition(randomPosition);
+    
+    // Place fake bullet that always kills the opponent
+    let fakePosition;
+    do {
+      fakePosition = Math.floor(Math.random() * 6) + 1;
+    } while (fakePosition === randomPosition);
+    setFakeBulletPosition(fakePosition);
+    
     setCurrentPosition(1);
     setGameState('targeting');
   };
@@ -61,6 +89,14 @@ const RussianRoulette = () => {
     
     // Check if bullet fired
     const bulletFired = currentPosition === bulletPosition;
+    const fakeBulletFired = currentPosition === fakeBulletPosition && !targetSelf;
+    
+    // Play sound
+    if (bulletFired || fakeBulletFired) {
+      shotSound?.play();
+    } else {
+      emptySound?.play();
+    }
     
     if (targetSelf) {
       // Player targeted self
@@ -74,11 +110,20 @@ const RussianRoulette = () => {
       } else {
         // Player survived and gets extra turn
         setCurrentPosition(prev => prev + 1);
-        setGameState('targeting'); // Player gets another turn
+        // Check if we need to reload
+        if (currentPosition >= 6) {
+          setGameState('reloading');
+          reloadSound?.play();
+          setTimeout(() => {
+            startGame();
+          }, 3000);
+        } else {
+          setGameState('targeting'); // Player gets another turn
+        }
       }
     } else {
       // Player targeted opponent
-      if (bulletFired) {
+      if (bulletFired || fakeBulletFired) {
         // Opponent died
         setBloodEffect(true);
         setTimeout(() => {
@@ -88,12 +133,22 @@ const RussianRoulette = () => {
       } else {
         // Opponent survived, now opponent's turn
         setCurrentPosition(prev => prev + 1);
-        setGameState('opponentTurn');
         
-        // Opponent's turn happens after 2 seconds
-        setTimeout(() => {
-          handleOpponentTurn();
-        }, 2000);
+        // Check if we need to reload
+        if (currentPosition >= 6) {
+          setGameState('reloading');
+          reloadSound?.play();
+          setTimeout(() => {
+            startGame();
+          }, 3000);
+        } else {
+          setGameState('opponentTurn');
+          
+          // Opponent's turn happens after 2 seconds
+          setTimeout(() => {
+            handleOpponentTurn();
+          }, 2000);
+        }
       }
     }
   };
@@ -108,8 +163,18 @@ const RussianRoulette = () => {
       }, 500);
     }
     
+    // Check if bullet fired
+    const bulletFired = currentPosition === bulletPosition;
+    
+    // Play sound
+    if (bulletFired) {
+      shotSound?.play();
+    } else {
+      emptySound?.play();
+    }
+    
     // Check if bullet hit opponent
-    if (currentPosition === bulletPosition) {
+    if (bulletFired) {
       // Opponent died
       setBloodEffect(true);
       setTimeout(() => {
@@ -119,7 +184,17 @@ const RussianRoulette = () => {
     } else {
       // Opponent survived, player's turn
       setCurrentPosition(prev => prev + 1);
-      setGameState('targeting');
+      
+      // Check if we need to reload
+      if (currentPosition >= 6) {
+        setGameState('reloading');
+        reloadSound?.play();
+        setTimeout(() => {
+          startGame();
+        }, 3000);
+      } else {
+        setGameState('targeting');
+      }
     }
   };
 
@@ -128,7 +203,7 @@ const RussianRoulette = () => {
     if (code === "1111") {
       localStorage.removeItem('russianRouletteDead');
       setIsDialogOpen(false);
-      setGameState('intro');
+      navigate('/');
     }
   };
 
@@ -154,6 +229,10 @@ const RussianRoulette = () => {
     opponentTurn: {
       title: language === 'en' ? 'Opponent\'s Turn' : 'Ход противника',
       aiming: language === 'en' ? 'is aiming...' : 'целится...'
+    },
+    reloading: {
+      title: language === 'en' ? 'Reloading...' : 'Перезарядка...',
+      description: language === 'en' ? 'The cylinder is empty. Reloading the revolver...' : 'Барабан пуст. Перезарядка револьвера...'
     },
     won: {
       title: language === 'en' ? 'Victory!' : 'Победа!',
@@ -276,13 +355,7 @@ const RussianRoulette = () => {
               
               {/* Revolver in first person view */}
               <div className="relative w-80 h-80 mx-auto mb-8" ref={revolverRef}>
-                <div className="absolute w-full h-full" style={{
-                  background: "url('/placeholder.svg')",
-                  backgroundSize: "contain",
-                  backgroundPosition: "center",
-                  backgroundRepeat: "no-repeat",
-                  filter: "drop-shadow(0 0 15px rgba(255, 180, 0, 0.3))"
-                }}></div>
+                <Revolver aimed={true} />
                 <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-1 bg-red-500 rounded-full blur-sm animate-pulse"></div>
               </div>
               
@@ -323,13 +396,7 @@ const RussianRoulette = () => {
               
               {/* Reversed revolver pointed at player */}
               <div className="relative w-80 h-80 mx-auto mb-8 transform rotate-180">
-                <div className="absolute w-full h-full" style={{
-                  background: "url('/placeholder.svg')",
-                  backgroundSize: "contain",
-                  backgroundPosition: "center",
-                  backgroundRepeat: "no-repeat",
-                  filter: "drop-shadow(0 0 15px rgba(255, 180, 0, 0.3))"
-                }}></div>
+                <Revolver aimed={true} flipped={true} />
                 <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-1 bg-red-500 rounded-full blur-sm animate-pulse"></div>
               </div>
               
@@ -343,6 +410,29 @@ const RussianRoulette = () => {
                       ${index + 1 < currentPosition ? 'bg-gray-700' : 'bg-amber-700'} 
                       ${index + 1 === currentPosition ? 'ring-2 ring-white animate-pulse' : ''}
                     `}
+                  ></div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {gameState === 'reloading' && (
+            <div className="text-center">
+              <h2 className="text-3xl font-bold mb-6 text-amber-500">{text.reloading.title}</h2>
+              
+              {/* Shaking revolver animation */}
+              <div className="relative w-80 h-80 mx-auto mb-8 animate-reload">
+                <Revolver />
+              </div>
+              
+              <p className="text-xl text-white">{text.reloading.description}</p>
+              
+              <div className="mt-10 flex justify-center space-x-4">
+                {Array.from({length: 6}).map((_, index) => (
+                  <div 
+                    key={index} 
+                    className="w-6 h-6 rounded-full bg-gray-800 animate-pulse"
+                    style={{ animationDelay: `${index * 0.2}s` }}
                   ></div>
                 ))}
               </div>
@@ -423,11 +513,6 @@ const RussianRoulette = () => {
       
       {/* Secret Code Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogTrigger asChild>
-          <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-300">
-            <Menu size={24} />
-          </button>
-        </DialogTrigger>
         <DialogContent className="sm:max-w-[425px] bg-gray-900 text-white border-gray-800 shadow-2xl">
           <DialogHeader>
             <DialogTitle>{text.secretCode.title}</DialogTitle>
@@ -458,6 +543,14 @@ const RussianRoulette = () => {
         {language === 'en' ? 'RU' : 'EN'}
       </button>
       
+      {/* Menu button */}
+      <button 
+        className="absolute top-4 right-4 text-gray-500 hover:text-gray-300 z-20"
+        onClick={() => setIsDialogOpen(true)}
+      >
+        <Menu size={24} />
+      </button>
+      
       {/* Styles for animations */}
       <style>
         {`
@@ -473,6 +566,9 @@ const RussianRoulette = () => {
           }
           .target-animation {
             animation: target 0.8s ease-in-out;
+          }
+          .animate-reload {
+            animation: reload 3s ease-in-out;
           }
           
           @keyframes shake {
@@ -505,6 +601,20 @@ const RussianRoulette = () => {
             0% { transform: scale(0); opacity: 0; }
             60% { opacity: 0.7; }
             100% { transform: scale(1.2); opacity: 0.5; }
+          }
+          
+          @keyframes reload {
+            0% { transform: translateX(0) rotateZ(0); }
+            10% { transform: translateX(-5px) rotateZ(-5deg); }
+            20% { transform: translateX(5px) rotateZ(5deg); }
+            30% { transform: translateX(-3px) rotateZ(-3deg); }
+            40% { transform: translateX(3px) rotateZ(3deg); }
+            50% { transform: translateX(-2px) rotateZ(-2deg); }
+            60% { transform: translateX(2px) rotateZ(2deg); }
+            70% { transform: translateX(-1px) rotateZ(-1deg); }
+            80% { transform: translateX(1px) rotateZ(1deg); }
+            90% { transform: translateX(-0.5px) rotateZ(0); }
+            100% { transform: translateX(0) rotateZ(0); }
           }
         `}
       </style>
