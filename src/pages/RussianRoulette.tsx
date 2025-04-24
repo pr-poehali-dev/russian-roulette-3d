@@ -2,7 +2,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { useNavigate } from 'react-router-dom';
-import { Tooltip } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { XCircle } from "lucide-react";
@@ -223,7 +222,7 @@ const RussianRoulette = () => {
       </Dialog>
       
       {/* Стили для анимации */}
-      <style jsx>{`
+      <style>{`
         .perspective-1000 {
           perspective: 1000px;
         }
